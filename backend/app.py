@@ -1,3 +1,4 @@
+import logging
 import os
 from uuid import UUID
 
@@ -9,6 +10,7 @@ from supabase import Client, create_client
 load_dotenv()
 
 app = Flask(__name__)
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 
 supabase_url = os.getenv("SUPABASE_URL")
 supabase_key = os.getenv("SUPABASE_PUBLISHABLE_KEY")
@@ -39,6 +41,11 @@ def parse_uuid(value):
 @app.get("/")
 def index():
     return jsonify({"message": "Events API is running"})
+
+
+@app.get("/health")
+def health():
+    return jsonify({"status": "ok"})
 
 
 @app.get("/api/events")
@@ -125,7 +132,7 @@ def create_registration():
         return jsonify(result.data[0]), 201
 
     except APIError as error:
-        if getattr(error, "code", None) == "23505":
+        if getattr(error, "code", None) in ("23505", "409"):
             return jsonify({"error": "Already registered"}), 409
         app.logger.exception("Failed to create registration")
         return jsonify({"error": "Could not create registration"}), 500
@@ -133,57 +140,16 @@ def create_registration():
 
 @app.get("/api/me/registrations")
 def get_user_registrations():
-    user_id = parse_uuid(request.args.get("user_id"))
-    if not user_id:
-        return jsonify({"error": "A valid user_id query parameter is required"}), 400
-
-    try:
-        result = (
-            supabase.table("registrations")
-            .select("*, events(*)")
-            .eq("user_id", user_id)
-            .execute()
-        )
-        return jsonify(result.data), 200
-    except APIError:
-        app.logger.exception("Failed to load registrations")
-        return jsonify({"error": "Could not load registrations"}), 500
+    return jsonify({
+        "error": "This endpoint requires a verified user identity."
+    }), 401
 
 
 @app.get("/api/events/<event_id>/registrations")
 def get_event_registrations(event_id):
-    event_id = parse_uuid(event_id)
-    organizer_id = parse_uuid(request.args.get("organizer_id"))
-
-    if not event_id or not organizer_id:
-        return jsonify({
-            "error": "Valid event ID and organizer_id query parameter are required"
-        }), 400
-
-    try:
-        event_result = (
-            supabase.table("events")
-            .select("id,organizer_id")
-            .eq("id", event_id)
-            .limit(1)
-            .execute()
-        )
-        if not event_result.data:
-            return jsonify({"error": "Event not found"}), 404
-
-        if event_result.data[0]["organizer_id"] != organizer_id:
-            return jsonify({"error": "Organizer does not own this event"}), 403
-
-        result = (
-            supabase.table("registrations")
-            .select("*, users(email)")
-            .eq("event_id", event_id)
-            .execute()
-        )
-        return jsonify(result.data), 200
-    except APIError:
-        app.logger.exception("Failed to load attendee list")
-        return jsonify({"error": "Could not load attendee list"}), 500
+    return jsonify({
+        "error": "This endpoint requires verified organizer ownership."
+    }), 401
 
 
 if __name__ == "__main__":
